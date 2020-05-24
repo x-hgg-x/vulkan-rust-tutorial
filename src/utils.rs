@@ -1,15 +1,17 @@
-use std::error::Error;
+use std::fmt::Display;
 
 use backtrace::Backtrace;
 
 pub struct Value<T>(pub T);
+
+pub type ResultValue<T, E> = Result<Value<T>, E>;
 
 pub trait BacktraceExt<T> {
     // Add backtrace to original error
     fn debug(self) -> Result<T, String>;
 }
 
-impl<T, E: Error> BacktraceExt<T> for Result<Value<T>, E> {
+impl<T, E: Display> BacktraceExt<T> for Result<Value<T>, E> {
     fn debug(self) -> Result<T, String> {
         self.map(|v| v.0).map_err(|err| {
             let bt = Backtrace::new();
