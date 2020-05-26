@@ -16,7 +16,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         create_device(graphics_queue_family, present_queue_family).debug()?;
 
     let (swapchain, images) =
-        create_swapchain(surface, device, graphics_queue, present_queue).debug()?;
+        create_swapchain(surface, device.clone(), graphics_queue, present_queue).debug()?;
+
+    let render_pass = create_render_pass(device, swapchain);
 
     Ok(())
 }

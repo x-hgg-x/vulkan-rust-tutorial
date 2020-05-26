@@ -5,16 +5,15 @@ use std::{error::Error, sync::Arc};
 use vulkano::{
     device::{Device, DeviceCreationError, DeviceExtensions, Features, Queue},
     format::Format,
+    framebuffer::{RenderPassAbstract, RenderPassCreationError},
     image::{ImageUsage, SwapchainImage},
-    instance::PhysicalDevice,
     instance::{
         debug::{DebugCallback, DebugCallbackCreationError, MessageSeverity, MessageType},
-        ApplicationInfo, Instance, InstanceCreationError, QueueFamily, Version,
+        ApplicationInfo, Instance, InstanceCreationError, PhysicalDevice, QueueFamily, Version,
     },
-    swapchain::Surface,
     swapchain::{
-        ColorSpace, CompositeAlpha, FullscreenExclusive, PresentMode, SurfaceTransform, Swapchain,
-        SwapchainCreationError,
+        ColorSpace, CompositeAlpha, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
+        Swapchain, SwapchainCreationError,
     },
     sync::SharingMode,
 };
@@ -223,4 +222,24 @@ pub fn create_swapchain(
         true,
         color_space,
     )?))
+}
+
+pub fn create_render_pass(
+    device: Arc<Device>,
+    swapchain: Arc<Swapchain<Window>>,
+) -> ResultValue<Arc<dyn RenderPassAbstract>, RenderPassCreationError> {
+    Ok(Value(Arc::new(vulkano::single_pass_renderpass!(device,
+        attachments: {
+            color: {
+                load: Clear,
+                store: Store,
+                format: swapchain.format(),
+                samples: 1,
+            }
+        },
+        pass: {
+            color: [color],
+            depth_stencil: {}
+        }
+    )?)))
 }
