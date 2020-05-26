@@ -4,12 +4,19 @@ use std::{error::Error, sync::Arc};
 
 use vulkano::{
     device::{Device, DeviceCreationError, DeviceExtensions, Features, Queue},
+    format::Format,
+    image::{ImageUsage, SwapchainImage},
     instance::PhysicalDevice,
     instance::{
         debug::{DebugCallback, DebugCallbackCreationError, MessageSeverity, MessageType},
         ApplicationInfo, Instance, InstanceCreationError, QueueFamily, Version,
     },
     swapchain::Surface,
+    swapchain::{
+        ColorSpace, CompositeAlpha, FullscreenExclusive, PresentMode, SurfaceTransform, Swapchain,
+        SwapchainCreationError,
+    },
+    sync::SharingMode,
 };
 use vulkano_win::{CreationError, VkSurfaceBuild};
 use winit::{
@@ -100,45 +107,27 @@ pub fn create_surface(
     Ok(Value((surface, events_loop)))
 }
 
-pub fn pick_physical_device<'a>(
-    instance: &'a Arc<Instance>,
-    surface: Arc<Surface<Window>>,
-) -> ResultValue<(PhysicalDevice, QueueFamily, QueueFamily), Box<dyn Error>> {
+pub fn pick_queues_families<'a>(
+    surface: &'a Arc<Surface<Window>>,
+) -> ResultValue<(QueueFamily, QueueFamily), Box<dyn Error>> {
     //
-    let mut graphics_queue_family = None;
-    let mut present_queue_family = None;
+    for physical_device in PhysicalDevice::enumerate(surface.instance()) {
+        let queue_families: Vec<_> = physical_device.queue_families().collect::<_>();
 
-    let physical_device = PhysicalDevice::enumerate(&instance)
-        .find(|device| {
-            let queue_families: Vec<_> = device.queue_families().collect::<_>();
-
-            match queue_families.iter().find(|&q| q.supports_graphics()) {
-                Some(&queue_family) => graphics_queue_family = Some(queue_family),
-                _ => return false,
-            };
-
-            match queue_families
-                .into_iter()
-                .find(|&q| surface.is_supported(q).unwrap_or(false))
-            {
-                Some(queue_family) => present_queue_family = Some(queue_family),
-                _ => return false,
-            };
-
-            true
-        })
-        .ok_or_else(|| "couldn't find a suitable physical device")?;
-
-    Ok(Value((
-        physical_device,
-        graphics_queue_family.unwrap(),
-        present_queue_family.unwrap(),
-    )))
+        if let (Some(&graphics_queue_family), Some(&present_queue_family)) = (
+            queue_families.iter().find(|&&q| q.supports_graphics()),
+            queue_families
+                .iter()
+                .find(|&&q| surface.is_supported(q).unwrap_or(false)),
+        ) {
+            return Ok(Value((graphics_queue_family, present_queue_family)));
+        }
+    }
+    Err("couldn't find a suitable physical device".into())
 }
 
 #[allow(clippy::type_complexity)]
 pub fn create_device(
-    physical_device: PhysicalDevice,
     graphics_queue_family: QueueFamily,
     present_queue_family: QueueFamily,
 ) -> ResultValue<(Arc<Device>, Arc<Queue>, Arc<Queue>), DeviceCreationError> {
@@ -150,7 +139,7 @@ pub fn create_device(
 
     let (device, queues) = {
         Device::new(
-            physical_device,
+            graphics_queue_family.physical_device(),
             &Features::none(),
             &DeviceExtensions {
                 khr_swapchain: true,
@@ -174,4 +163,64 @@ pub fn create_device(
         .to_owned();
 
     Ok(Value((device, graphics_queue, present_queue)))
+}
+
+#[allow(clippy::type_complexity)]
+pub fn create_swapchain(
+    surface: Arc<Surface<Window>>,
+    device: Arc<Device>,
+    graphics_queue: Arc<Queue>,
+    present_queue: Arc<Queue>,
+) -> ResultValue<(Arc<Swapchain<Window>>, Vec<Arc<SwapchainImage<Window>>>), SwapchainCreationError>
+{
+    let capabilities = surface.capabilities(device.physical_device()).unwrap();
+
+    let usage = ImageUsage {
+        color_attachment: true,
+        ..ImageUsage::none()
+    };
+
+    let sharing_mode = if graphics_queue.family() != present_queue.family() {
+        SharingMode::Concurrent(vec![
+            graphics_queue.family().id(),
+            present_queue.family().id(),
+        ])
+    } else {
+        SharingMode::Exclusive
+    };
+
+    let num_images =
+        (capabilities.min_image_count + 1).min(capabilities.max_image_count.unwrap_or(u32::MAX));
+
+    let (format, color_space) = capabilities
+        .supported_formats
+        .iter()
+        .find(|&&x| x == (Format::B8G8R8A8Unorm, ColorSpace::SrgbNonLinear))
+        .cloned()
+        .unwrap_or(capabilities.supported_formats[0]);
+
+    let present_mode = if capabilities.present_modes.mailbox {
+        PresentMode::Mailbox
+    } else if capabilities.present_modes.immediate {
+        PresentMode::Immediate
+    } else {
+        PresentMode::Fifo
+    };
+
+    Ok(Value(Swapchain::new(
+        device,
+        surface.clone(),
+        num_images,
+        format,
+        surface.window().inner_size().into(),
+        1,
+        usage,
+        sharing_mode,
+        SurfaceTransform::Identity,
+        CompositeAlpha::Opaque,
+        present_mode,
+        FullscreenExclusive::Default,
+        true,
+        color_space,
+    )?))
 }
