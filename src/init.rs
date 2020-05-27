@@ -3,14 +3,17 @@ use crate::utils::{ResultValue, Value};
 use std::{error::Error, sync::Arc};
 
 use vulkano::{
+    buffer::{BufferUsage, CpuAccessibleBuffer},
     device::{Device, DeviceCreationError, DeviceExtensions, Features, Queue},
     format::Format,
-    framebuffer::{RenderPassAbstract, RenderPassCreationError},
+    framebuffer::{RenderPassAbstract, RenderPassCreationError, Subpass},
     image::{ImageUsage, SwapchainImage},
     instance::{
         debug::{DebugCallback, DebugCallbackCreationError, MessageSeverity, MessageType},
         ApplicationInfo, Instance, InstanceCreationError, PhysicalDevice, QueueFamily, Version,
     },
+    memory::DeviceMemoryAllocError,
+    pipeline::{GraphicsPipeline, GraphicsPipelineAbstract, GraphicsPipelineCreationError},
     swapchain::{
         ColorSpace, CompositeAlpha, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
         Swapchain, SwapchainCreationError,
@@ -26,6 +29,27 @@ use winit::{
 
 const WIDTH: i32 = 800;
 const HEIGHT: i32 = 600;
+
+#[derive(Default)]
+pub struct Vertex {
+    position: [f32; 2],
+    color: [f32; 3],
+}
+vulkano::impl_vertex!(Vertex, position, color);
+
+mod vs {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "shaders/shader.vert"
+    }
+}
+
+mod fs {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        path: "shaders/shader.frag"
+    }
+}
 
 pub fn create_instance() -> ResultValue<Arc<Instance>, InstanceCreationError> {
     let version = Version {
@@ -172,7 +196,7 @@ pub fn create_swapchain(
     present_queue: Arc<Queue>,
 ) -> ResultValue<(Arc<Swapchain<Window>>, Vec<Arc<SwapchainImage<Window>>>), SwapchainCreationError>
 {
-    let capabilities = surface.capabilities(device.physical_device()).unwrap();
+    let capabilities = surface.capabilities(device.physical_device())?;
 
     let usage = ImageUsage {
         color_attachment: true,
@@ -224,10 +248,37 @@ pub fn create_swapchain(
     )?))
 }
 
+pub fn create_vertex_buffer(
+    device: Arc<Device>,
+) -> ResultValue<Arc<CpuAccessibleBuffer<[&'static Vertex]>>, DeviceMemoryAllocError> {
+    //
+    Ok(Value(CpuAccessibleBuffer::from_iter(
+        device,
+        BufferUsage::vertex_buffer(),
+        false,
+        [
+            Vertex {
+                position: [0.0, -0.5],
+                color: [1.0, 0.0, 0.0],
+            },
+            Vertex {
+                position: [0.5, 0.5],
+                color: [0.0, 1.0, 0.0],
+            },
+            Vertex {
+                position: [-0.5, 0.5],
+                color: [0.0, 0.0, 1.0],
+            },
+        ]
+        .iter(),
+    )?))
+}
+
 pub fn create_render_pass(
     device: Arc<Device>,
     swapchain: Arc<Swapchain<Window>>,
 ) -> ResultValue<Arc<dyn RenderPassAbstract>, RenderPassCreationError> {
+    //
     Ok(Value(Arc::new(vulkano::single_pass_renderpass!(device,
         attachments: {
             color: {
@@ -242,4 +293,21 @@ pub fn create_render_pass(
             depth_stencil: {}
         }
     )?)))
+}
+
+pub fn create_pipeline(
+    device: Arc<Device>,
+    render_pass: Arc<dyn RenderPassAbstract>,
+) -> ResultValue<Arc<dyn GraphicsPipelineAbstract>, GraphicsPipelineCreationError> {
+    //
+    Ok(Value(Arc::new(
+        GraphicsPipeline::start()
+            .vertex_input_single_buffer::<Vertex>()
+            .vertex_shader(vs::Shader::load(device.clone())?.main_entry_point(), ())
+            .triangle_list()
+            .viewports_dynamic_scissors_irrelevant(1)
+            .fragment_shader(fs::Shader::load(device.clone())?.main_entry_point(), ())
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            .build(device)?,
+    )))
 }

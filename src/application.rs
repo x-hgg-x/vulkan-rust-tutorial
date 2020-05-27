@@ -18,7 +18,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let (swapchain, images) =
         create_swapchain(surface, device.clone(), graphics_queue, present_queue).debug()?;
 
-    let render_pass = create_render_pass(device, swapchain);
+    let vertex_buffer = create_vertex_buffer(device.clone()).debug()?;
+
+    let render_pass = create_render_pass(device.clone(), swapchain).debug()?;
+
+    let pipeline = create_pipeline(device, render_pass).debug()?;
 
     Ok(())
 }
