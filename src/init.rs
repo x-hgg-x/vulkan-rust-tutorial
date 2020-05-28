@@ -4,16 +4,23 @@ use std::{error::Error, sync::Arc};
 
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer},
+    command_buffer::DynamicState,
     device::{Device, DeviceCreationError, DeviceExtensions, Features, Queue},
     format::Format,
-    framebuffer::{RenderPassAbstract, RenderPassCreationError, Subpass},
+    framebuffer::{
+        Framebuffer, FramebufferAbstract, FramebufferCreationError, RenderPassAbstract,
+        RenderPassCreationError, Subpass,
+    },
     image::{ImageUsage, SwapchainImage},
     instance::{
         debug::{DebugCallback, DebugCallbackCreationError, MessageSeverity, MessageType},
         ApplicationInfo, Instance, InstanceCreationError, PhysicalDevice, QueueFamily, Version,
     },
     memory::DeviceMemoryAllocError,
-    pipeline::{GraphicsPipeline, GraphicsPipelineAbstract, GraphicsPipelineCreationError},
+    pipeline::{
+        viewport::Viewport, GraphicsPipeline, GraphicsPipelineAbstract,
+        GraphicsPipelineCreationError,
+    },
     swapchain::{
         ColorSpace, CompositeAlpha, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
         Swapchain, SwapchainCreationError,
@@ -30,7 +37,7 @@ use winit::{
 const WIDTH: i32 = 800;
 const HEIGHT: i32 = 600;
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub struct Vertex {
     position: [f32; 2],
     color: [f32; 3],
@@ -120,6 +127,7 @@ pub fn create_surface(
 ) -> ResultValue<(Arc<Surface<Window>>, EventLoop<()>), CreationError> {
     //
     let events_loop = EventLoop::new();
+
     let surface = WindowBuilder::new()
         .with_inner_size(LogicalSize {
             width: WIDTH,
@@ -127,6 +135,7 @@ pub fn create_surface(
         })
         .with_title("Vulkan Application")
         .build_vk_surface(&events_loop, instance)?;
+
     Ok(Value((surface, events_loop)))
 }
 
@@ -218,7 +227,7 @@ pub fn create_swapchain(
     let (format, color_space) = capabilities
         .supported_formats
         .iter()
-        .find(|&&x| x == (Format::B8G8R8A8Unorm, ColorSpace::SrgbNonLinear))
+        .find(|&&x| x == (Format::B8G8R8A8Srgb, ColorSpace::SrgbNonLinear))
         .cloned()
         .unwrap_or(capabilities.supported_formats[0]);
 
@@ -250,7 +259,7 @@ pub fn create_swapchain(
 
 pub fn create_vertex_buffer(
     device: Arc<Device>,
-) -> ResultValue<Arc<CpuAccessibleBuffer<[&'static Vertex]>>, DeviceMemoryAllocError> {
+) -> ResultValue<Arc<CpuAccessibleBuffer<[Vertex]>>, DeviceMemoryAllocError> {
     //
     Ok(Value(CpuAccessibleBuffer::from_iter(
         device,
@@ -270,14 +279,15 @@ pub fn create_vertex_buffer(
                 color: [0.0, 0.0, 1.0],
             },
         ]
-        .iter(),
+        .iter()
+        .cloned(),
     )?))
 }
 
 pub fn create_render_pass(
     device: Arc<Device>,
     swapchain: Arc<Swapchain<Window>>,
-) -> ResultValue<Arc<dyn RenderPassAbstract>, RenderPassCreationError> {
+) -> ResultValue<Arc<dyn RenderPassAbstract + Send + Sync>, RenderPassCreationError> {
     //
     Ok(Value(Arc::new(vulkano::single_pass_renderpass!(device,
         attachments: {
@@ -297,8 +307,8 @@ pub fn create_render_pass(
 
 pub fn create_pipeline(
     device: Arc<Device>,
-    render_pass: Arc<dyn RenderPassAbstract>,
-) -> ResultValue<Arc<dyn GraphicsPipelineAbstract>, GraphicsPipelineCreationError> {
+    render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+) -> ResultValue<Arc<dyn GraphicsPipelineAbstract + Send + Sync>, GraphicsPipelineCreationError> {
     //
     Ok(Value(Arc::new(
         GraphicsPipeline::start()
@@ -310,4 +320,33 @@ pub fn create_pipeline(
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .build(device)?,
     )))
+}
+
+pub fn update_dynamic_viewport(
+    swapchain: Arc<Swapchain<Window>>,
+    dynamic_state: &mut DynamicState,
+) {
+    //
+    let dimensions = swapchain.dimensions();
+    dynamic_state.viewports = Some(vec![Viewport {
+        origin: [0.0, 0.0],
+        dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+        depth_range: 0.0..1.0,
+    }]);
+}
+
+pub fn create_framebuffers(
+    swapchain_images: Vec<Arc<SwapchainImage<Window>>>,
+    render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+) -> ResultValue<Vec<Arc<dyn FramebufferAbstract + Send + Sync>>, FramebufferCreationError> {
+    //
+    let mut framebuffers = Vec::<Arc<dyn FramebufferAbstract + Send + Sync>>::new();
+    for image in swapchain_images {
+        framebuffers.push(Arc::new(
+            Framebuffer::start(render_pass.clone())
+                .add(image.clone())?
+                .build()?,
+        ));
+    }
+    Ok(Value(framebuffers))
 }
