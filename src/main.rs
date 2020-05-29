@@ -1,5 +1,7 @@
 mod application;
+mod event_loop;
 mod init;
+mod lib;
 mod utils;
 
 fn main() {

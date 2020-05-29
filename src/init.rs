@@ -1,3 +1,4 @@
+use crate::lib::*;
 use crate::utils::{ResultValue, Value};
 
 use std::{error::Error, sync::Arc};
@@ -34,30 +35,6 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-const WIDTH: i32 = 800;
-const HEIGHT: i32 = 600;
-
-#[derive(Default, Debug, Clone)]
-pub struct Vertex {
-    position: [f32; 2],
-    color: [f32; 3],
-}
-vulkano::impl_vertex!(Vertex, position, color);
-
-mod vs {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "shaders/shader.vert"
-    }
-}
-
-mod fs {
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        path: "shaders/shader.frag"
-    }
-}
-
 pub fn create_instance() -> ResultValue<Arc<Instance>, InstanceCreationError> {
     let version = Version {
         major: 1,
@@ -91,12 +68,7 @@ pub fn create_debug_callback(
     if cfg!(debug_assertions) {
         Ok(Value(Some(DebugCallback::new(
             instance,
-            MessageSeverity {
-                error: true,
-                warning: true,
-                information: true,
-                verbose: true,
-            },
+            MessageSeverity::errors_and_warnings(),
             MessageType::all(),
             |msg| {
                 let message_severity = if msg.severity.error {
@@ -267,15 +239,15 @@ pub fn create_vertex_buffer(
         false,
         [
             Vertex {
-                position: [0.0, -0.5],
+                position: [0.0, -0.5625],
                 color: [1.0, 0.0, 0.0],
             },
             Vertex {
-                position: [0.5, 0.5],
+                position: [0.375 * 3.0f32.sqrt(), 0.5625],
                 color: [0.0, 1.0, 0.0],
             },
             Vertex {
-                position: [-0.5, 0.5],
+                position: [-0.375 * 3.0f32.sqrt(), 0.5625],
                 color: [0.0, 0.0, 1.0],
             },
         ]
@@ -306,10 +278,10 @@ pub fn create_render_pass(
 }
 
 pub fn create_pipeline(
-    device: Arc<Device>,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
 ) -> ResultValue<Arc<dyn GraphicsPipelineAbstract + Send + Sync>, GraphicsPipelineCreationError> {
     //
+    let device = render_pass.device();
     Ok(Value(Arc::new(
         GraphicsPipeline::start()
             .vertex_input_single_buffer::<Vertex>()
@@ -318,7 +290,7 @@ pub fn create_pipeline(
             .viewports_dynamic_scissors_irrelevant(1)
             .fragment_shader(fs::Shader::load(device.clone())?.main_entry_point(), ())
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-            .build(device)?,
+            .build(device.clone())?,
     )))
 }
 
@@ -327,10 +299,24 @@ pub fn update_dynamic_viewport(
     dynamic_state: &mut DynamicState,
 ) {
     //
+    const RATIO: f32 = WIDTH as f32 / HEIGHT as f32;
+
+    let dimensions = swapchain.dimensions();
+    let (mut width, mut height) = (dimensions[0] as f32, dimensions[1] as f32);
+
+    if width / height > RATIO {
+        width = RATIO * height;
+    } else {
+        height = width / RATIO;
+    }
+
     let dimensions = swapchain.dimensions();
     dynamic_state.viewports = Some(vec![Viewport {
-        origin: [0.0, 0.0],
-        dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+        origin: [
+            (dimensions[0] as f32 - width) / 2.0,
+            (dimensions[1] as f32 - height) / 2.0,
+        ],
+        dimensions: [width, height],
         depth_range: 0.0..1.0,
     }]);
 }
