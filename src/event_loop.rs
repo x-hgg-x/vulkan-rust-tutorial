@@ -2,14 +2,18 @@ use crate::init::{create_framebuffers, update_dynamic_viewport};
 use crate::lib::*;
 use crate::utils::BacktraceExt;
 
-use std::{error::Error, sync::Arc};
+use std::{convert::TryInto, error::Error, sync::Arc, time::Instant};
 
 use vulkano::{
-    buffer::CpuAccessibleBuffer,
+    buffer::CpuBufferPool,
     command_buffer::{AutoCommandBufferBuilder, DynamicState},
+    descriptor::{descriptor_set::FixedSizeDescriptorSetsPool, DescriptorSet},
     device::Queue,
+    format::Format,
     framebuffer::{FramebufferAbstract, RenderPassAbstract},
+    image::ImmutableImage,
     pipeline::GraphicsPipelineAbstract,
+    sampler::Sampler,
     swapchain::{self, AcquireError, Swapchain, SwapchainCreationError},
     sync::{self, FlushError, GpuFuture},
 };
@@ -19,15 +23,23 @@ use winit::{
     window::Window,
 };
 
+use nalgebra_glm as glm;
+
 #[allow(clippy::too_many_arguments)]
 pub fn main_loop(
     event: Event<()>,
     control_flow: &mut ControlFlow,
+    start_instant: Instant,
     graphics_queue: Arc<Queue>,
     present_queue: Arc<Queue>,
-    vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
+    vertex_buffer: VertexBuffer,
+    index_buffer: IndexBuffer,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
     pipeline: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+    texture: Arc<ImmutableImage<Format>>,
+    sampler: Arc<Sampler>,
+    uniform_buffer: &CpuBufferPool<vs::ty::UniformBufferObject>,
+    descriptor_pool: &mut FixedSizeDescriptorSetsPool,
     swapchain: &mut Arc<Swapchain<Window>>,
     dynamic_state: &mut DynamicState,
     framebuffers: &mut Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
@@ -76,7 +88,7 @@ pub fn main_loop(
             }
 
             // Workaround for driver bug when resizing window (but triggers validation layer errors)
-            if image_num >= swapchain.num_images() as usize {
+            if image_num >= swapchain.num_images().try_into()? {
                 return Ok(recreate_swapchain(
                     swapchain,
                     render_pass.clone(),
@@ -86,20 +98,29 @@ pub fn main_loop(
                 )?);
             }
 
+            let set = update_descriptor_set(
+                start_instant,
+                uniform_buffer,
+                descriptor_pool,
+                texture,
+                sampler,
+            )?;
+
             let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
-                graphics_queue.device().clone(),
+                pipeline.device().clone(),
                 graphics_queue.family(),
             )?
             .begin_render_pass(
                 framebuffers[image_num].clone(),
                 false,
-                vec![[0.0, 0.0, 0.0, 1.0].into()],
+                vec![[0.0, 0.0, 0.0, 1.0].into(), 1.0.into()],
             )?
-            .draw(
+            .draw_indexed(
                 pipeline.clone(),
                 &dynamic_state,
                 vec![vertex_buffer],
-                (),
+                index_buffer,
+                set,
                 (),
             )?
             .end_render_pass()?
@@ -107,7 +128,7 @@ pub fn main_loop(
 
             match previous_frame_future
                 .take()
-                .unwrap_or_else(|| Box::new(sync::now(graphics_queue.device().clone())))
+                .unwrap_or_else(|| Box::new(sync::now(pipeline.device().clone())))
                 .join(acquire_future)
                 .then_execute(graphics_queue, command_buffer)?
                 .then_swapchain_present(present_queue, swapchain.clone(), image_num)
@@ -139,6 +160,50 @@ pub fn main_loop(
         _ => (),
     }
     Ok(())
+}
+
+fn update_descriptor_set(
+    start_instant: Instant,
+    uniform_buffer: &CpuBufferPool<vs::ty::UniformBufferObject>,
+    descriptor_pool: &mut FixedSizeDescriptorSetsPool,
+    texture: Arc<ImmutableImage<Format>>,
+    sampler: Arc<Sampler>,
+) -> Result<Arc<dyn DescriptorSet + Send + Sync>, Box<dyn Error>> {
+    //
+    let elapsed = start_instant.elapsed().as_nanos() as f32 / 1_000_000_000.0;
+
+    let mut ubo = vs::ty::UniformBufferObject {
+        model: glm::rotate(
+            &glm::identity(),
+            elapsed * f32::to_radians(90.0),
+            &glm::vec3(0.0, 0.0, 1.0),
+        )
+        .into(),
+
+        view: glm::look_at(
+            &glm::vec3(2.0, 2.0, 2.0),
+            &glm::vec3(0.0, 0.0, 0.0),
+            &glm::vec3(0.0, 0.0, 1.0),
+        )
+        .into(),
+
+        proj: glm::perspective(
+            WIDTH as f32 / HEIGHT as f32,
+            f32::to_radians(45.0),
+            0.1,
+            10.0,
+        )
+        .into(),
+    };
+    ubo.proj[1][1] *= -1.0;
+
+    Ok(Arc::new(
+        descriptor_pool
+            .next()
+            .add_buffer(uniform_buffer.next(ubo)?)?
+            .add_sampled_image(texture, sampler)?
+            .build()?,
+    ))
 }
 
 fn recreate_swapchain(

@@ -8,4 +8,13 @@ vulkano = "0.18"
 vulkano-shaders = "0.18"
 vulkano-win = "0.18"
 winit = "0.22"
+image = "0.23.4"
+tobj = "2.0.1"
+nalgebra-glm = "0.7.0"
 backtrace = "0.3"
+
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.tobj]
+opt-level = 3

@@ -9,24 +9,23 @@ use vulkano::{
     device::{Device, DeviceCreationError, DeviceExtensions, Features, Queue},
     format::Format,
     framebuffer::{
-        Framebuffer, FramebufferAbstract, FramebufferCreationError, RenderPassAbstract,
-        RenderPassCreationError, Subpass,
+        Framebuffer, FramebufferAbstract, RenderPassAbstract, RenderPassCreationError, Subpass,
     },
-    image::{ImageUsage, SwapchainImage},
+    image::{AttachmentImage, Dimensions, ImageUsage, ImmutableImage, SwapchainImage},
     instance::{
         debug::{DebugCallback, DebugCallbackCreationError, MessageSeverity, MessageType},
         ApplicationInfo, Instance, InstanceCreationError, PhysicalDevice, QueueFamily, Version,
     },
-    memory::DeviceMemoryAllocError,
     pipeline::{
         viewport::Viewport, GraphicsPipeline, GraphicsPipelineAbstract,
         GraphicsPipelineCreationError,
     },
+    sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
     swapchain::{
         ColorSpace, CompositeAlpha, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
         Swapchain, SwapchainCreationError,
     },
-    sync::SharingMode,
+    sync::{GpuFuture, SharingMode},
 };
 use vulkano_win::{CreationError, VkSurfaceBuild};
 use winit::{
@@ -34,6 +33,8 @@ use winit::{
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
+
+use image::GenericImageView;
 
 pub fn create_instance() -> ResultValue<Arc<Instance>, InstanceCreationError> {
     let version = Version {
@@ -144,7 +145,10 @@ pub fn create_device(
     let (device, queues) = {
         Device::new(
             graphics_queue_family.physical_device(),
-            &Features::none(),
+            &Features {
+                sampler_anisotropy: true,
+                ..Features::none()
+            },
             &DeviceExtensions {
                 khr_swapchain: true,
                 ..DeviceExtensions::none()
@@ -229,31 +233,68 @@ pub fn create_swapchain(
     )?))
 }
 
-pub fn create_vertex_buffer(
+pub fn create_buffers(
     device: Arc<Device>,
-) -> ResultValue<Arc<CpuAccessibleBuffer<[Vertex]>>, DeviceMemoryAllocError> {
+) -> ResultValue<(VertexBuffer, IndexBuffer), Box<dyn Error>> {
     //
-    Ok(Value(CpuAccessibleBuffer::from_iter(
-        device,
+    let (models, _) = tobj::load_obj("models/chalet.obj", true)?;
+    let mesh = &models[0].mesh;
+
+    let vertex_buffer = CpuAccessibleBuffer::from_iter(
+        device.clone(),
         BufferUsage::vertex_buffer(),
         false,
-        [
-            Vertex {
-                position: [0.0, -0.5625],
-                color: [1.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.375 * 3.0f32.sqrt(), 0.5625],
-                color: [0.0, 1.0, 0.0],
-            },
-            Vertex {
-                position: [-0.375 * 3.0f32.sqrt(), 0.5625],
-                color: [0.0, 0.0, 1.0],
-            },
-        ]
-        .iter()
-        .cloned(),
-    )?))
+        mesh.positions
+            .chunks_exact(3)
+            .zip(mesh.texcoords.chunks_exact(2))
+            .map(|(pos, tex)| Vertex {
+                position: [pos[0], pos[1], pos[2]],
+                texture_coords: [tex[0], 1.0 - tex[1]],
+            }),
+    )?;
+
+    let index_buffer = CpuAccessibleBuffer::from_iter(
+        device,
+        BufferUsage::index_buffer(),
+        false,
+        mesh.indices.iter().cloned(),
+    )?;
+
+    Ok(Value((vertex_buffer, index_buffer)))
+}
+
+#[allow(clippy::type_complexity)]
+pub fn load_texture(
+    graphics_queue: Arc<Queue>,
+) -> ResultValue<(Arc<ImmutableImage<Format>>, Box<dyn GpuFuture>), Box<dyn Error>> {
+    //
+    let img = image::open("textures/chalet.jpg")?;
+    let (width, height) = img.dimensions();
+
+    let (texture, texture_future) = ImmutableImage::from_iter(
+        img.to_bytes().into_iter(),
+        Dimensions::Dim2d { width, height },
+        Format::R8G8B8Srgb,
+        graphics_queue,
+    )?;
+    Ok(Value((texture, Box::new(texture_future))))
+}
+
+pub fn create_sampler(device: Arc<Device>) -> ResultValue<Arc<Sampler>, Box<dyn Error>> {
+    let sampler = Sampler::new(
+        device.clone(),
+        Filter::Linear,
+        Filter::Linear,
+        MipmapMode::Linear,
+        SamplerAddressMode::Repeat,
+        SamplerAddressMode::Repeat,
+        SamplerAddressMode::Repeat,
+        0.0,
+        device.physical_device().limits().max_sampler_anisotropy(),
+        0.0,
+        1000.0,
+    )?;
+    Ok(Value(sampler))
 }
 
 pub fn create_render_pass(
@@ -268,11 +309,17 @@ pub fn create_render_pass(
                 store: Store,
                 format: swapchain.format(),
                 samples: 1,
+            },
+            depth: {
+                load: Clear,
+                store: DontCare,
+                format: Format::D32Sfloat,
+                samples: 1,
             }
         },
         pass: {
             color: [color],
-            depth_stencil: {}
+            depth_stencil: {depth}
         }
     )?)))
 }
@@ -289,6 +336,7 @@ pub fn create_pipeline(
             .triangle_list()
             .viewports_dynamic_scissors_irrelevant(1)
             .fragment_shader(fs::Shader::load(device.clone())?.main_entry_point(), ())
+            .depth_stencil_simple_depth()
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .build(device.clone())?,
     )))
@@ -324,13 +372,20 @@ pub fn update_dynamic_viewport(
 pub fn create_framebuffers(
     swapchain_images: Vec<Arc<SwapchainImage<Window>>>,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
-) -> ResultValue<Vec<Arc<dyn FramebufferAbstract + Send + Sync>>, FramebufferCreationError> {
+) -> ResultValue<Vec<Arc<dyn FramebufferAbstract + Send + Sync>>, Box<dyn Error>> {
     //
+    let depth_buffer = AttachmentImage::transient(
+        render_pass.device().clone(),
+        swapchain_images[0].dimensions(),
+        Format::D32Sfloat,
+    )?;
+
     let mut framebuffers = Vec::<Arc<dyn FramebufferAbstract + Send + Sync>>::new();
     for image in swapchain_images {
         framebuffers.push(Arc::new(
             Framebuffer::start(render_pass.clone())
                 .add(image.clone())?
+                .add(depth_buffer.clone())?
                 .build()?,
         ));
     }

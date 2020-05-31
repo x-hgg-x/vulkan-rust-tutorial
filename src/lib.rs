@@ -1,12 +1,18 @@
+use std::sync::Arc;
+use vulkano::buffer::CpuAccessibleBuffer;
+
 pub const WIDTH: u32 = 800;
-pub const HEIGHT: u32 = 800;
+pub const HEIGHT: u32 = 600;
 
 #[derive(Default, Debug, Clone)]
 pub struct Vertex {
-    pub position: [f32; 2],
-    pub color: [f32; 3],
+    pub position: [f32; 3],
+    pub texture_coords: [f32; 2],
 }
-vulkano::impl_vertex!(Vertex, position, color);
+vulkano::impl_vertex!(Vertex, position, texture_coords);
+
+pub type VertexBuffer = Arc<CpuAccessibleBuffer<[Vertex]>>;
+pub type IndexBuffer = Arc<CpuAccessibleBuffer<[u32]>>;
 
 pub mod vs {
     vulkano_shaders::shader! {
