@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use vulkano::buffer::CpuAccessibleBuffer;
+use vulkano::buffer::ImmutableBuffer;
 
 pub const WIDTH: u32 = 800;
 pub const HEIGHT: u32 = 600;
@@ -11,8 +11,8 @@ pub struct Vertex {
 }
 vulkano::impl_vertex!(Vertex, position, texture_coords);
 
-pub type VertexBuffer = Arc<CpuAccessibleBuffer<[Vertex]>>;
-pub type IndexBuffer = Arc<CpuAccessibleBuffer<[u32]>>;
+pub type VertexBuffer = Arc<ImmutableBuffer<[Vertex]>>;
+pub type IndexBuffer = Arc<ImmutableBuffer<[u32]>>;
 
 pub mod vs {
     vulkano_shaders::shader! {

@@ -4,7 +4,7 @@ use crate::utils::{ResultValue, Value};
 use std::{error::Error, sync::Arc};
 
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer},
+    buffer::{BufferUsage, ImmutableBuffer},
     command_buffer::DynamicState,
     device::{Device, DeviceCreationError, DeviceExtensions, Features, Queue},
     format::Format,
@@ -234,16 +234,13 @@ pub fn create_swapchain(
 }
 
 pub fn create_buffers(
-    device: Arc<Device>,
+    graphics_queue: Arc<Queue>,
 ) -> ResultValue<(VertexBuffer, IndexBuffer), Box<dyn Error>> {
     //
     let (models, _) = tobj::load_obj("models/chalet.obj", true)?;
     let mesh = &models[0].mesh;
 
-    let vertex_buffer = CpuAccessibleBuffer::from_iter(
-        device.clone(),
-        BufferUsage::vertex_buffer(),
-        false,
+    let (vertex_buffer, vertex_future) = ImmutableBuffer::from_iter(
         mesh.positions
             .chunks_exact(3)
             .zip(mesh.texcoords.chunks_exact(2))
@@ -251,22 +248,27 @@ pub fn create_buffers(
                 position: [pos[0], pos[1], pos[2]],
                 texture_coords: [tex[0], 1.0 - tex[1]],
             }),
+        BufferUsage::vertex_buffer(),
+        graphics_queue.clone(),
     )?;
 
-    let index_buffer = CpuAccessibleBuffer::from_iter(
-        device,
-        BufferUsage::index_buffer(),
-        false,
+    let (index_buffer, index_future) = ImmutableBuffer::from_iter(
         mesh.indices.iter().cloned(),
+        BufferUsage::index_buffer(),
+        graphics_queue,
     )?;
+
+    vertex_future
+        .join(index_future)
+        .then_signal_fence_and_flush()?
+        .cleanup_finished();
 
     Ok(Value((vertex_buffer, index_buffer)))
 }
 
-#[allow(clippy::type_complexity)]
 pub fn load_texture(
     graphics_queue: Arc<Queue>,
-) -> ResultValue<(Arc<ImmutableImage<Format>>, Box<dyn GpuFuture>), Box<dyn Error>> {
+) -> ResultValue<Arc<ImmutableImage<Format>>, Box<dyn Error>> {
     //
     let img = image::open("textures/chalet.jpg")?;
     let (width, height) = img.dimensions();
@@ -277,7 +279,12 @@ pub fn load_texture(
         Format::R8G8B8Srgb,
         graphics_queue,
     )?;
-    Ok(Value((texture, Box::new(texture_future))))
+
+    texture_future
+        .then_signal_fence_and_flush()?
+        .cleanup_finished();
+
+    Ok(Value(texture))
 }
 
 pub fn create_sampler(device: Arc<Device>) -> ResultValue<Arc<Sampler>, Box<dyn Error>> {

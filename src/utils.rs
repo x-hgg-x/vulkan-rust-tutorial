@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::Debug;
 
 use backtrace::Backtrace;
 
@@ -11,7 +11,7 @@ pub trait BacktraceExt<T> {
     fn debug(self) -> Result<T, String>;
 }
 
-impl<T, E: Display> BacktraceExt<T> for Result<Value<T>, E> {
+impl<T, E: Debug> BacktraceExt<T> for Result<Value<T>, E> {
     fn debug(self) -> Result<T, String> {
         self.map(|v| v.0).map_err(|err| {
             let bt = Backtrace::new();
@@ -30,7 +30,7 @@ impl<T, E: Display> BacktraceExt<T> for Result<Value<T>, E> {
                 };
 
             format!(
-                "{}\n\nOriginal error line:\n{}\n\tat {}",
+                "{:?}\n\nOriginal error line:\n{}\n\tat {}",
                 err, symbol_name, symbol_path
             )
         })

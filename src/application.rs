@@ -30,9 +30,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     )
     .debug()?;
 
-    let (vertex_buffer, index_buffer) = create_buffers(device.clone()).debug()?;
+    let (vertex_buffer, index_buffer) = create_buffers(graphics_queue.clone()).debug()?;
 
-    let (texture, texture_future) = load_texture(graphics_queue.clone()).debug()?;
+    let texture = load_texture(graphics_queue.clone()).debug()?;
 
     let sampler = create_sampler(device.clone()).debug()?;
 
@@ -51,7 +51,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         FixedSizeDescriptorSetsPool::new(pipeline.descriptor_set_layout(0).unwrap().clone());
 
     let mut swapchain_out_of_date = false;
-    let mut previous_frame_future: Option<Box<dyn GpuFuture>> = Some(Box::new(texture_future));
+    let mut previous_frame_future: Option<Box<dyn GpuFuture>> = None;
     let start_instant = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
