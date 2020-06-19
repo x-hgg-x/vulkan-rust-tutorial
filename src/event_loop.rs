@@ -1,8 +1,7 @@
 use crate::init::{create_framebuffers, update_dynamic_viewport};
 use crate::lib::*;
-use crate::utils::BacktraceExt;
 
-use std::{convert::TryInto, error::Error, sync::Arc, time::Instant};
+use std::{convert::TryInto, sync::Arc, time::Instant};
 
 use vulkano::{
     buffer::CpuBufferPool,
@@ -25,6 +24,9 @@ use winit::{
 
 use nalgebra_glm as glm;
 
+use color_eyre::Result;
+use eyre::eyre;
+
 #[allow(clippy::too_many_arguments)]
 pub fn main_loop(
     event: Event<()>,
@@ -45,7 +47,7 @@ pub fn main_loop(
     framebuffers: &mut Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
     swapchain_out_of_date: &mut bool,
     previous_frame_future: &mut Option<Box<dyn GpuFuture>>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<()> {
     //
     match event {
         Event::WindowEvent { event, .. } => match event {
@@ -80,7 +82,7 @@ pub fn main_loop(
                             swapchain_out_of_date,
                         )?);
                     }
-                    Err(e) => return Err(format!("Failed to acquire next image: {:?}", e).into()),
+                    Err(e) => return Err(eyre!("Failed to acquire next image: {:?}", e)),
                 };
 
             if suboptimal {
@@ -168,7 +170,7 @@ fn update_descriptor_set(
     descriptor_pool: &mut FixedSizeDescriptorSetsPool,
     texture: Arc<ImmutableImage<Format>>,
     sampler: Arc<Sampler>,
-) -> Result<Arc<dyn DescriptorSet + Send + Sync>, Box<dyn Error>> {
+) -> Result<Arc<dyn DescriptorSet + Send + Sync>> {
     //
     let elapsed = start_instant.elapsed().as_nanos() as f32 / 1_000_000_000.0;
 
@@ -212,20 +214,20 @@ fn recreate_swapchain(
     dynamic_state: &mut DynamicState,
     framebuffers: &mut Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
     swapchain_out_of_date: &mut bool,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<()> {
     //
     let (new_swapchain, new_swapchain_images) = match swapchain
         .recreate_with_dimensions(swapchain.surface().window().inner_size().into())
     {
         Ok(r) => r,
         Err(SwapchainCreationError::UnsupportedDimensions) => return Ok(()),
-        Err(e) => return Err(format!("Failed to recreate swapchain: {:?}", e).into()),
+        Err(e) => return Err(eyre!("Failed to recreate swapchain: {:?}", e)),
     };
     *swapchain = new_swapchain;
 
     update_dynamic_viewport(swapchain.clone(), dynamic_state);
 
-    *framebuffers = create_framebuffers(new_swapchain_images, render_pass).debug()?;
+    *framebuffers = create_framebuffers(new_swapchain_images, render_pass)?;
 
     *swapchain_out_of_date = false;
     Ok(())

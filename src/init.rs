@@ -1,33 +1,27 @@
 use crate::lib::*;
-use crate::utils::{ResultValue, Value};
 
-use std::{error::Error, sync::Arc};
+use std::sync::Arc;
 
 use vulkano::{
     buffer::{BufferUsage, ImmutableBuffer},
     command_buffer::DynamicState,
-    device::{Device, DeviceCreationError, DeviceExtensions, Features, Queue},
+    device::{Device, DeviceExtensions, Features, Queue},
     format::Format,
-    framebuffer::{
-        Framebuffer, FramebufferAbstract, RenderPassAbstract, RenderPassCreationError, Subpass,
-    },
+    framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
     image::{AttachmentImage, Dimensions, ImageUsage, ImmutableImage, SwapchainImage},
     instance::{
-        debug::{DebugCallback, DebugCallbackCreationError, MessageSeverity, MessageType},
-        ApplicationInfo, Instance, InstanceCreationError, PhysicalDevice, QueueFamily, Version,
+        debug::{DebugCallback, MessageSeverity, MessageType},
+        ApplicationInfo, Instance, PhysicalDevice, QueueFamily, Version,
     },
-    pipeline::{
-        viewport::Viewport, GraphicsPipeline, GraphicsPipelineAbstract,
-        GraphicsPipelineCreationError,
-    },
+    pipeline::{viewport::Viewport, GraphicsPipeline, GraphicsPipelineAbstract},
     sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode},
     swapchain::{
         ColorSpace, CompositeAlpha, FullscreenExclusive, PresentMode, Surface, SurfaceTransform,
-        Swapchain, SwapchainCreationError,
+        Swapchain,
     },
     sync::{GpuFuture, SharingMode},
 };
-use vulkano_win::{CreationError, VkSurfaceBuild};
+use vulkano_win::VkSurfaceBuild;
 use winit::{
     dpi::LogicalSize,
     event_loop::EventLoop,
@@ -36,7 +30,10 @@ use winit::{
 
 use image::GenericImageView;
 
-pub fn create_instance() -> ResultValue<Arc<Instance>, InstanceCreationError> {
+use color_eyre::Result;
+use eyre::eyre;
+
+pub fn create_instance() -> Result<Arc<Instance>> {
     let version = Version {
         major: 1,
         minor: 0,
@@ -50,7 +47,7 @@ pub fn create_instance() -> ResultValue<Arc<Instance>, InstanceCreationError> {
         layers.push("VK_LAYER_LUNARG_standard_validation");
     }
 
-    Ok(Value(Instance::new(
+    Ok(Instance::new(
         Some(&ApplicationInfo {
             application_name: Some("Vulkan Application".into()),
             application_version: Some(version),
@@ -59,15 +56,12 @@ pub fn create_instance() -> ResultValue<Arc<Instance>, InstanceCreationError> {
         }),
         &required_extensions,
         layers,
-    )?))
+    )?)
 }
 
-pub fn create_debug_callback(
-    instance: &Arc<Instance>,
-) -> ResultValue<Option<DebugCallback>, DebugCallbackCreationError> {
-    //
+pub fn create_debug_callback(instance: &Arc<Instance>) -> Result<Option<DebugCallback>> {
     if cfg!(debug_assertions) {
-        Ok(Value(Some(DebugCallback::new(
+        Ok(Some(DebugCallback::new(
             instance,
             MessageSeverity::errors_and_warnings(),
             MessageType::all(),
@@ -89,16 +83,13 @@ pub fn create_debug_callback(
                     message_severity, msg.description
                 );
             },
-        )?)))
+        )?))
     } else {
-        Ok(Value(None))
+        Ok(None)
     }
 }
 
-pub fn create_surface(
-    instance: Arc<Instance>,
-) -> ResultValue<(Arc<Surface<Window>>, EventLoop<()>), CreationError> {
-    //
+pub fn create_surface(instance: Arc<Instance>) -> Result<(Arc<Surface<Window>>, EventLoop<()>)> {
     let events_loop = EventLoop::new();
 
     let surface = WindowBuilder::new()
@@ -109,12 +100,12 @@ pub fn create_surface(
         .with_title("Vulkan Application")
         .build_vk_surface(&events_loop, instance)?;
 
-    Ok(Value((surface, events_loop)))
+    Ok((surface, events_loop))
 }
 
 pub fn pick_queues_families<'a>(
     surface: &'a Arc<Surface<Window>>,
-) -> ResultValue<(QueueFamily, QueueFamily), Box<dyn Error>> {
+) -> Result<(QueueFamily, QueueFamily)> {
     //
     for physical_device in PhysicalDevice::enumerate(surface.instance()) {
         let queue_families: Vec<_> = physical_device.queue_families().collect::<_>();
@@ -125,17 +116,16 @@ pub fn pick_queues_families<'a>(
                 .iter()
                 .find(|&&q| surface.is_supported(q).unwrap_or(false)),
         ) {
-            return Ok(Value((graphics_queue_family, present_queue_family)));
+            return Ok((graphics_queue_family, present_queue_family));
         }
     }
-    Err("couldn't find a suitable physical device".into())
+    Err(eyre!("couldn't find a suitable physical device"))
 }
 
-#[allow(clippy::type_complexity)]
 pub fn create_device(
     graphics_queue_family: QueueFamily,
     present_queue_family: QueueFamily,
-) -> ResultValue<(Arc<Device>, Arc<Queue>, Arc<Queue>), DeviceCreationError> {
+) -> Result<(Arc<Device>, Arc<Queue>, Arc<Queue>)> {
     //
     let mut queue_families = vec![(graphics_queue_family, 1.0)];
     if graphics_queue_family.id() != present_queue_family.id() {
@@ -170,7 +160,7 @@ pub fn create_device(
         .unwrap()
         .to_owned();
 
-    Ok(Value((device, graphics_queue, present_queue)))
+    Ok((device, graphics_queue, present_queue))
 }
 
 #[allow(clippy::type_complexity)]
@@ -179,8 +169,7 @@ pub fn create_swapchain(
     device: Arc<Device>,
     graphics_queue: Arc<Queue>,
     present_queue: Arc<Queue>,
-) -> ResultValue<(Arc<Swapchain<Window>>, Vec<Arc<SwapchainImage<Window>>>), SwapchainCreationError>
-{
+) -> Result<(Arc<Swapchain<Window>>, Vec<Arc<SwapchainImage<Window>>>)> {
     let capabilities = surface.capabilities(device.physical_device())?;
 
     let usage = ImageUsage {
@@ -215,7 +204,7 @@ pub fn create_swapchain(
         PresentMode::Fifo
     };
 
-    Ok(Value(Swapchain::new(
+    Ok(Swapchain::new(
         device,
         surface.clone(),
         num_images,
@@ -230,13 +219,10 @@ pub fn create_swapchain(
         FullscreenExclusive::Default,
         true,
         color_space,
-    )?))
+    )?)
 }
 
-pub fn create_buffers(
-    graphics_queue: Arc<Queue>,
-) -> ResultValue<(VertexBuffer, IndexBuffer), Box<dyn Error>> {
-    //
+pub fn create_buffers(graphics_queue: Arc<Queue>) -> Result<(VertexBuffer, IndexBuffer)> {
     let (models, _) = tobj::load_obj("models/chalet.obj", true)?;
     let mesh = &models[0].mesh;
 
@@ -263,13 +249,10 @@ pub fn create_buffers(
         .then_signal_fence_and_flush()?
         .cleanup_finished();
 
-    Ok(Value((vertex_buffer, index_buffer)))
+    Ok((vertex_buffer, index_buffer))
 }
 
-pub fn load_texture(
-    graphics_queue: Arc<Queue>,
-) -> ResultValue<Arc<ImmutableImage<Format>>, Box<dyn Error>> {
-    //
+pub fn load_texture(graphics_queue: Arc<Queue>) -> Result<Arc<ImmutableImage<Format>>> {
     let img = image::open("textures/chalet.jpg")?;
     let (width, height) = img.dimensions();
 
@@ -284,10 +267,10 @@ pub fn load_texture(
         .then_signal_fence_and_flush()?
         .cleanup_finished();
 
-    Ok(Value(texture))
+    Ok(texture)
 }
 
-pub fn create_sampler(device: Arc<Device>) -> ResultValue<Arc<Sampler>, Box<dyn Error>> {
+pub fn create_sampler(device: Arc<Device>) -> Result<Arc<Sampler>> {
     let sampler = Sampler::new(
         device.clone(),
         Filter::Linear,
@@ -301,15 +284,15 @@ pub fn create_sampler(device: Arc<Device>) -> ResultValue<Arc<Sampler>, Box<dyn 
         0.0,
         1000.0,
     )?;
-    Ok(Value(sampler))
+    Ok(sampler)
 }
 
 pub fn create_render_pass(
     device: Arc<Device>,
     swapchain: Arc<Swapchain<Window>>,
-) -> ResultValue<Arc<dyn RenderPassAbstract + Send + Sync>, RenderPassCreationError> {
+) -> Result<Arc<dyn RenderPassAbstract + Send + Sync>> {
     //
-    Ok(Value(Arc::new(vulkano::single_pass_renderpass!(device,
+    Ok(Arc::new(vulkano::single_pass_renderpass!(device,
         attachments: {
             color: {
                 load: Clear,
@@ -328,15 +311,15 @@ pub fn create_render_pass(
             color: [color],
             depth_stencil: {depth}
         }
-    )?)))
+    )?))
 }
 
 pub fn create_pipeline(
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
-) -> ResultValue<Arc<dyn GraphicsPipelineAbstract + Send + Sync>, GraphicsPipelineCreationError> {
+) -> Result<Arc<dyn GraphicsPipelineAbstract + Send + Sync>> {
     //
     let device = render_pass.device();
-    Ok(Value(Arc::new(
+    Ok(Arc::new(
         GraphicsPipeline::start()
             .vertex_input_single_buffer::<Vertex>()
             .vertex_shader(vs::Shader::load(device.clone())?.main_entry_point(), ())
@@ -346,7 +329,7 @@ pub fn create_pipeline(
             .depth_stencil_simple_depth()
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
             .build(device.clone())?,
-    )))
+    ))
 }
 
 pub fn update_dynamic_viewport(
@@ -379,7 +362,7 @@ pub fn update_dynamic_viewport(
 pub fn create_framebuffers(
     swapchain_images: Vec<Arc<SwapchainImage<Window>>>,
     render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
-) -> ResultValue<Vec<Arc<dyn FramebufferAbstract + Send + Sync>>, Box<dyn Error>> {
+) -> Result<Vec<Arc<dyn FramebufferAbstract + Send + Sync>>> {
     //
     let depth_buffer = AttachmentImage::transient(
         render_pass.device().clone(),
@@ -396,5 +379,5 @@ pub fn create_framebuffers(
                 .build()?,
         ));
     }
-    Ok(Value(framebuffers))
+    Ok(framebuffers)
 }
