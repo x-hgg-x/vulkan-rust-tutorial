@@ -1,7 +1,7 @@
 use crate::init::{create_framebuffers, update_dynamic_viewport};
 use crate::lib::*;
 
-use std::{convert::TryInto, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 
 use vulkano::{
     buffer::CpuBufferPool,
@@ -87,17 +87,6 @@ pub fn main_loop(
 
             if suboptimal {
                 *swapchain_out_of_date = true;
-            }
-
-            // Workaround for driver bug when resizing window (but triggers validation layer errors)
-            if image_num >= swapchain.num_images().try_into()? {
-                return Ok(recreate_swapchain(
-                    swapchain,
-                    render_pass.clone(),
-                    dynamic_state,
-                    framebuffers,
-                    swapchain_out_of_date,
-                )?);
             }
 
             let set = update_descriptor_set(
