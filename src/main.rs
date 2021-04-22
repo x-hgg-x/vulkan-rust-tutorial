@@ -16,6 +16,8 @@ use vulkano::{
 use color_eyre::Result;
 
 pub fn main() -> Result<()> {
+    color_eyre::install()?;
+
     let instance = create_instance()?;
 
     let _debug_callback = create_debug_callback(&instance)?;

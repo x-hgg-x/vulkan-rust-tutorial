@@ -8,7 +8,10 @@ use vulkano::{
     device::{Device, DeviceExtensions, Features, Queue},
     format::Format,
     framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass},
-    image::{AttachmentImage, Dimensions, ImageUsage, ImmutableImage, SwapchainImage},
+    image::{
+        view::ImageView, AttachmentImage, ImageDimensions, ImageUsage, ImmutableImage,
+        MipmapsCount, SwapchainImage,
+    },
     instance::{
         debug::{DebugCallback, MessageSeverity, MessageType},
         ApplicationInfo, Instance, PhysicalDevice, QueueFamily, Version,
@@ -30,8 +33,7 @@ use winit::{
 
 use image::GenericImageView;
 
-use color_eyre::Result;
-use eyre::eyre;
+use color_eyre::{eyre::eyre, Result};
 
 pub fn create_instance() -> Result<Arc<Instance>> {
     let version = Version {
@@ -103,10 +105,7 @@ pub fn create_surface(instance: Arc<Instance>) -> Result<(Arc<Surface<Window>>, 
     Ok((surface, events_loop))
 }
 
-pub fn pick_queues_families<'a>(
-    surface: &'a Arc<Surface<Window>>,
-) -> Result<(QueueFamily, QueueFamily)> {
-    //
+pub fn pick_queues_families(surface: &Arc<Surface<Window>>) -> Result<(QueueFamily, QueueFamily)> {
     for physical_device in PhysicalDevice::enumerate(surface.instance()) {
         let queue_families: Vec<_> = physical_device.queue_families().collect::<_>();
 
@@ -258,7 +257,12 @@ pub fn load_texture(graphics_queue: Arc<Queue>) -> Result<Arc<ImmutableImage<For
 
     let (texture, texture_future) = ImmutableImage::from_iter(
         img.to_bytes().into_iter(),
-        Dimensions::Dim2d { width, height },
+        ImageDimensions::Dim2d {
+            width,
+            height,
+            array_layers: 1,
+        },
+        MipmapsCount::One,
         Format::R8G8B8Srgb,
         graphics_queue,
     )?;
@@ -374,8 +378,8 @@ pub fn create_framebuffers(
     for image in swapchain_images {
         framebuffers.push(Arc::new(
             Framebuffer::start(render_pass.clone())
-                .add(image.clone())?
-                .add(depth_buffer.clone())?
+                .add(ImageView::new(image.clone())?)?
+                .add(ImageView::new(depth_buffer.clone())?)?
                 .build()?,
         ));
     }

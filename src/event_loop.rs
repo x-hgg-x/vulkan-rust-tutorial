@@ -5,12 +5,12 @@ use std::{sync::Arc, time::Instant};
 
 use vulkano::{
     buffer::CpuBufferPool,
-    command_buffer::{AutoCommandBufferBuilder, DynamicState},
+    command_buffer::{AutoCommandBufferBuilder, DynamicState, SubpassContents},
     descriptor::{descriptor_set::FixedSizeDescriptorSetsPool, DescriptorSet},
     device::Queue,
     format::Format,
     framebuffer::{FramebufferAbstract, RenderPassAbstract},
-    image::ImmutableImage,
+    image::{view::ImageView, ImmutableImage},
     pipeline::GraphicsPipelineAbstract,
     sampler::Sampler,
     swapchain::{self, AcquireError, Swapchain, SwapchainCreationError},
@@ -24,8 +24,7 @@ use winit::{
 
 use nalgebra_glm as glm;
 
-use color_eyre::Result;
-use eyre::eyre;
+use color_eyre::{eyre::eyre, Result};
 
 #[allow(clippy::too_many_arguments)]
 pub fn main_loop(
@@ -74,13 +73,13 @@ pub fn main_loop(
                 match swapchain::acquire_next_image(swapchain.clone(), None) {
                     Ok(r) => r,
                     Err(AcquireError::OutOfDate) => {
-                        return Ok(recreate_swapchain(
+                        return recreate_swapchain(
                             swapchain,
                             render_pass.clone(),
                             dynamic_state,
                             framebuffers,
                             swapchain_out_of_date,
-                        )?);
+                        );
                     }
                     Err(e) => return Err(eyre!("Failed to acquire next image: {:?}", e)),
                 };
@@ -97,25 +96,29 @@ pub fn main_loop(
                 sampler,
             )?;
 
-            let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
+            let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
                 pipeline.device().clone(),
                 graphics_queue.family(),
-            )?
-            .begin_render_pass(
-                framebuffers[image_num].clone(),
-                false,
-                vec![[0.0, 0.0, 0.0, 1.0].into(), 1.0.into()],
-            )?
-            .draw_indexed(
-                pipeline.clone(),
-                &dynamic_state,
-                vec![vertex_buffer],
-                index_buffer,
-                set,
-                (),
-            )?
-            .end_render_pass()?
-            .build()?;
+            )?;
+
+            builder
+                .begin_render_pass(
+                    framebuffers[image_num].clone(),
+                    SubpassContents::Inline,
+                    vec![[0.0, 0.0, 0.0, 1.0].into(), 1.0.into()],
+                )?
+                .draw_indexed(
+                    pipeline.clone(),
+                    &dynamic_state,
+                    vec![vertex_buffer],
+                    index_buffer,
+                    set,
+                    (),
+                    vec![],
+                )?
+                .end_render_pass()?;
+
+            let command_buffer = builder.build()?;
 
             match previous_frame_future
                 .take()
@@ -192,7 +195,7 @@ fn update_descriptor_set(
         descriptor_pool
             .next()
             .add_buffer(uniform_buffer.next(ubo)?)?
-            .add_sampled_image(texture, sampler)?
+            .add_sampled_image(ImageView::new(texture)?, sampler)?
             .build()?,
     ))
 }
