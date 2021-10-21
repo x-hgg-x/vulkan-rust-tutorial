@@ -109,7 +109,7 @@ pub fn main_loop(
                 )?
                 .draw_indexed(
                     pipeline.clone(),
-                    &dynamic_state,
+                    dynamic_state,
                     vec![vertex_buffer],
                     index_buffer,
                     set,

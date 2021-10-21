@@ -107,7 +107,7 @@ pub fn create_surface(instance: Arc<Instance>) -> Result<(Arc<Surface<Window>>, 
 
 pub fn pick_queues_families(surface: &Arc<Surface<Window>>) -> Result<(QueueFamily, QueueFamily)> {
     for physical_device in PhysicalDevice::enumerate(surface.instance()) {
-        let queue_families: Vec<_> = physical_device.queue_families().collect::<_>();
+        let queue_families: Vec<_> = physical_device.queue_families().collect();
 
         if let (Some(&graphics_queue_family), Some(&present_queue_family)) = (
             queue_families.iter().find(|&&q| q.supports_graphics()),
@@ -145,7 +145,7 @@ pub fn create_device(
             queue_families,
         )?
     };
-    let queues: Vec<_> = queues.collect::<_>();
+    let queues: Vec<_> = queues.collect();
 
     let graphics_queue = queues
         .iter()
