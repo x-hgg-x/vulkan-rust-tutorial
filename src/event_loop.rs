@@ -81,7 +81,7 @@ pub fn main_loop(
                             swapchain_out_of_date,
                         );
                     }
-                    Err(e) => return Err(eyre!("Failed to acquire next image: {:?}", e)),
+                    Err(e) => return Err(eyre!("Failed to acquire next image: {e:?}")),
                 };
 
             if suboptimal {
@@ -136,7 +136,7 @@ pub fn main_loop(
                     *previous_frame_future = None;
                 }
                 Err(e) => {
-                    println!("Failed to flush future: {:?}", e);
+                    println!("Failed to flush future: {e:?}");
                     *previous_frame_future = None;
                 }
             }
@@ -213,7 +213,7 @@ fn recreate_swapchain(
     {
         Ok(r) => r,
         Err(SwapchainCreationError::UnsupportedDimensions) => return Ok(()),
-        Err(e) => return Err(eyre!("Failed to recreate swapchain: {:?}", e)),
+        Err(e) => return Err(eyre!("Failed to recreate swapchain: {e:?}")),
     };
     *swapchain = new_swapchain;
 

@@ -80,10 +80,8 @@ pub fn create_debug_callback(instance: &Arc<Instance>) -> Result<Option<DebugCal
                     unimplemented!()
                 };
 
-                println!(
-                    "validation layer: (severity: {}) {}",
-                    message_severity, msg.description
-                );
+                let message_description = msg.description;
+                println!("validation layer: (severity: {message_severity}) {message_description}");
             },
         )?))
     } else {

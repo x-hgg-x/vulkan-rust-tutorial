@@ -82,7 +82,7 @@ pub fn main() -> Result<()> {
             &mut previous_frame_future,
         )
         .unwrap_or_else(|e| {
-            println!("\nError when running main loop: {:?}\n", e);
+            println!("\nError when running main loop: {e:?}\n");
             std::process::exit(1);
         });
     });
