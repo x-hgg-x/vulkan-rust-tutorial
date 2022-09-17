@@ -17,13 +17,13 @@ pub type IndexBuffer = Arc<ImmutableBuffer<[u32]>>;
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "shaders/shader.vert"
+        path: "assets/shaders/shader.vert"
     }
 }
 
 pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "shaders/shader.frag"
+        path: "assets/shaders/shader.frag"
     }
 }

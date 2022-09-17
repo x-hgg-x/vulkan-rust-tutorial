@@ -220,7 +220,7 @@ pub fn create_swapchain(
 }
 
 pub fn create_buffers(graphics_queue: Arc<Queue>) -> Result<(VertexBuffer, IndexBuffer)> {
-    let (models, _) = tobj::load_obj("models/chalet.obj", true)?;
+    let (models, _) = tobj::load_obj("assets/lfs/models/chalet.obj", true)?;
     let mesh = &models[0].mesh;
 
     let (vertex_buffer, vertex_future) = ImmutableBuffer::from_iter(
@@ -250,7 +250,7 @@ pub fn create_buffers(graphics_queue: Arc<Queue>) -> Result<(VertexBuffer, Index
 }
 
 pub fn load_texture(graphics_queue: Arc<Queue>) -> Result<Arc<ImmutableImage<Format>>> {
-    let img = image::open("textures/chalet.jpg")?;
+    let img = image::open("assets/lfs/textures/chalet.jpg")?;
     let (width, height) = img.dimensions();
 
     let (texture, texture_future) = ImmutableImage::from_iter(
